@@ -1,4 +1,5 @@
 import rasterio
+import pandas as pd
 
 # ---------------------------------------------------------
 # Efficient point extraction
@@ -10,25 +11,28 @@ def extract_value(src, lat, lon):
     row, col = src.index(lon, lat)
     return src.read(1, window=((row, row + 1), (col, col + 1)))[0, 0]
 
-
 # ---------------------------------------------------------
 # Extract values for multiple rasters and coordinates
 # ---------------------------------------------------------
-def extract_multiple(raster_map, coordinates):
+
+
+def extract_multiple_to_df(raster_map, coordinates):
     """
     raster_map: dict of value_name -> raster_path
     coordinates: dict of label -> (lat, lon)
 
-    Returns: dict[value_name][label] = value
+    Returns: pandas DataFrame with cities as rows, rasters as columns
     """
-    results = {}
-    for value_name, path in raster_map.items():
-        with rasterio.open(path) as src:
-            results[value_name] = {}
-            for label, (lat, lon) in coordinates.items():
-                val = extract_value(src, lat, lon)
-                results[value_name][label] = val
-    return results
+    data = []
+    for city_name, (lat, lon) in coordinates.items():
+        row = {"city": city_name, "lat": lat, "lon": lon}
+        for value_name, path in raster_map.items():
+            with rasterio.open(path) as src:
+                row[value_name] = extract_value(src, lat, lon)
+        data.append(row)
+
+    df = pd.DataFrame(data)
+    return df
 
 
 # ---------------------------------------------------------
@@ -36,8 +40,9 @@ def extract_multiple(raster_map, coordinates):
 # ---------------------------------------------------------
 if __name__ == "__main__":
     raster_map = {
-        "IEC2": "USA_capacity-factor_IEC2.tif",
-        "power_density": "USA_power-density_50m.tif",
+        "Wind efficiency": "USA_capacity-factor_IEC2.tif",
+        "Solar power": "PVOUT.tif",
+        "Fiber optics": "usa.tif",
     }
 
     city_coords = {
@@ -51,9 +56,8 @@ if __name__ == "__main__":
         "Truth or Consequences, NM": (33.1286, -107.2522),
     }
 
-    results = extract_multiple(raster_map, city_coords)
+    df = extract_multiple_to_df(raster_map, city_coords)
 
-    for value_name, city_vals in results.items():
-        print(f"\nValues for {value_name}:")
-        for city, val in city_vals.items():
-            print(f"{city}: {val:.3f}")
+    print(df)
+
+    df.to_csv("city_raster_values.csv", index=False)
