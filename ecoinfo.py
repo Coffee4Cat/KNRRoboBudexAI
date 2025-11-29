@@ -16,7 +16,7 @@ def extract_value(src, lat, lon):
 # ---------------------------------------------------------
 
 
-def extract_multiple_to_df(raster_map, coordinates):
+def extract_multiple_to_df(raster_map, coordinates, named_mode=False, calculate_avgs=False, calculate_stdevs=False):
     """
     raster_map: dict of value_name -> raster_path
     coordinates: dict of label -> (lat, lon)
@@ -24,13 +24,35 @@ def extract_multiple_to_df(raster_map, coordinates):
     Returns: pandas DataFrame with cities as rows, rasters as columns
     """
     data = []
-    for city_name, (lat, lon) in coordinates.items():
-        row = {"city": city_name, "lat": lat, "lon": lon}
-        for value_name, path in raster_map.items():
-            with rasterio.open(path) as src:
-                row[value_name] = extract_value(src, lat, lon)
-        data.append(row)
+    if (named_mode):
+        for city_name, (lat, lon) in coordinates.items():
+            row = {"city": city_name, "lat": lat, "lon": lon}
+            for value_name, path in raster_map.items():
+                with rasterio.open(path) as src:
+                    row[value_name] = extract_value(src, lat, lon)
+            data.append(row)
+    else:
+        for (lat, lon) in coordinates:
+            row = {"lat": lat, "lon": lon}
+            for value_name, path in raster_map.items():
+                with rasterio.open(path) as src:
+                    row[value_name] = extract_value(src, lat, lon)
+            data.append(row)
 
+    if (calculate_avgs):
+        avg_row = {"city": "Average" if named_mode else "Average",
+                   "lat": None, "lon": None}
+        for value_name in raster_map.keys():
+            avg_row[value_name] = sum(d[value_name] for d in data) / len(data)
+        data.append(avg_row)
+    if (calculate_stdevs):
+        import statistics
+        stdev_row = {"city": "Stdev" if named_mode else "Stdev",
+                     "lat": None, "lon": None}
+        for value_name in raster_map.keys():
+            stdev_row[value_name] = statistics.stdev(
+                d[value_name] for d in data)
+        data.append(stdev_row)
     df = pd.DataFrame(data)
     return df
 
@@ -67,8 +89,21 @@ if __name__ == "__main__":
         "Truth or Consequences, NM": (33.1286, -107.2522),
     }
 
-    df = extract_multiple_to_df(raster_map, city_coords)
+    df = extract_multiple_to_df(
+        raster_map, city_coords, named_mode=True, calculate_avgs=True, calculate_stdevs=True)
 
     print(df)
 
+    coordinates_nameless = [
+        (32.7767, -96.7970),
+        (40.7128, -74.0060),
+        (34.0522, -118.2437),
+        (41.8781, -87.6298),
+        (25.7617, -80.1918),
+        (38.5733, -109.5498),
+        (35.2854, -109.5455),
+        (33.1286, -107.2522),
+    ]
+    df2 = extract_multiple_to_df(raster_map, coordinates_nameless)
+    print(df2)
     # df.to_csv("city_raster_values.csv", index=False)
