@@ -90,7 +90,7 @@ def extract_multiple_to_df(
 def get_default_params_map():
     """Get raster parameters like bounds, resolution, CRS"""
     return {
-        "Wind efficiency": "data/USA_capacity-factor_IEC2.tif",
+        "Wind efficiency": "data/USA_power-density_10m.tif",
         "Solar power": "data/PVOUT.tif",
         "Fiber optics": "data/usa.tif",
         "Temperature": "data/TEMP.tif",
