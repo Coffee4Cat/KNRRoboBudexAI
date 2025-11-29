@@ -40,9 +40,9 @@ def extract_multiple_to_df(raster_map, coordinates):
 # ---------------------------------------------------------
 if __name__ == "__main__":
     raster_map = {
-        "Wind efficiency": "USA_capacity-factor_IEC2.tif",
-        "Solar power": "PVOUT.tif",
-        "Fiber optics": "usa.tif",
+        "Wind efficiency": "data/USA_capacity-factor_IEC2.tif",
+        "Solar power": "data/PVOUT.tif",
+        "Fiber optics": "data/usa.tif",
     }
 
     city_coords = {
@@ -60,4 +60,4 @@ if __name__ == "__main__":
 
     print(df)
 
-    df.to_csv("city_raster_values.csv", index=False)
+    # df.to_csv("city_raster_values.csv", index=False)
