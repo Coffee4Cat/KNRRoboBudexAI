@@ -1,6 +1,7 @@
 import rasterio
 import pandas as pd
-
+import random
+import statistics
 # ---------------------------------------------------------
 # Efficient point extraction
 # ---------------------------------------------------------
@@ -8,58 +9,84 @@ import pandas as pd
 
 def extract_value(src, lat, lon):
     """Extract a single pixel value from a raster"""
-    row, col = src.index(lon, lat)
-    return src.read(1, window=((row, row + 1), (col, col + 1)))[0, 0]
+    try:
+        row, col = src.index(lon, lat)
+    except Exception:
+        return None
 
+    if row < 0 or col < 0 or row >= src.height or col >= src.width:
+        return None
+
+    value = src.read(1, window=((row, row+1), (col, col+1)))[0, 0]
+
+    # check against raster's NoData
+    if src.nodata is not None and value == src.nodata:
+        return None
+
+    return value
 # ---------------------------------------------------------
 # Extract values for multiple rasters and coordinates
 # ---------------------------------------------------------
 
 
-def extract_multiple_to_df(raster_map, coordinates, named_mode=False, calculate_avgs=False, calculate_stdevs=False):
+def extract_multiple_to_df(
+    raster_map,
+    coordinates,
+    named_mode=False,
+    calculate_avgs=False,
+    calculate_stdevs=False
+):
     """
     raster_map: dict of value_name -> raster_path
-    coordinates: dict of label -> (lat, lon)
-
-    Returns: pandas DataFrame with cities as rows, rasters as columns
+    coordinates: dict(label -> (lat, lon)) OR list of (lat, lon)
     """
-    data = []
-    if (named_mode):
-        for city_name, (lat, lon) in coordinates.items():
-            row = {"city": city_name, "lat": lat, "lon": lon}
-            for value_name, path in raster_map.items():
-                with rasterio.open(path) as src:
-                    row[value_name] = extract_value(src, lat, lon)
-            data.append(row)
+    rows = []
+
+    if named_mode:
+        coord_iter = ((label, *coords)
+                      for label, coords in coordinates.items())
     else:
-        for (lat, lon) in coordinates:
-            row = {"lat": lat, "lon": lon}
-            for value_name, path in raster_map.items():
-                with rasterio.open(path) as src:
-                    row[value_name] = extract_value(src, lat, lon)
-            data.append(row)
+        coord_iter = ((None, *coords) for coords in coordinates)
 
-    if (calculate_avgs):
-        avg_row = {"city": "Average" if named_mode else "Average",
-                   "lat": None, "lon": None}
-        for value_name in raster_map.keys():
-            avg_row[value_name] = sum(d[value_name] for d in data) / len(data)
-        data.append(avg_row)
-    if (calculate_stdevs):
-        import statistics
-        stdev_row = {"city": "Stdev" if named_mode else "Stdev",
-                     "lat": None, "lon": None}
-        for value_name in raster_map.keys():
-            stdev_row[value_name] = statistics.stdev(
-                d[value_name] for d in data)
-        data.append(stdev_row)
-    df = pd.DataFrame(data)
+    # Extract values
+    for label, lat, lon in coord_iter:
+        row = {"lat": lat, "lon": lon}
+        if label is not None:
+            row["city"] = label
+
+        for value_name, path in raster_map.items():
+            with rasterio.open(path) as src:
+                row[value_name] = extract_value(src, lat, lon)
+
+        rows.append(row)
+
+    # Build DF
+    df = pd.DataFrame(rows)
+
+    # Drop rows with any None (invalid raster hits)
+    df = df.dropna(axis=0, how="any").reset_index(drop=True)
+
+    # Compute stats only on surviving rows
+    if calculate_avgs or calculate_stdevs:
+        # Pull cleaned values
+        cleaned = {name: df[name].tolist() for name in raster_map}
+
+        if calculate_avgs:
+            for name, vals in cleaned.items():
+                df[name + "_avg"] = sum(vals) / len(vals) if vals else None
+
+        if calculate_stdevs:
+            for name, vals in cleaned.items():
+                df[name + "_stdev"] = (
+                    statistics.stdev(vals) if len(vals) > 1 else None
+                )
+
     return df
-
-
 # ---------------------------------------------------------
 # Get Parameters
 # ---------------------------------------------------------
+
+
 def get_default_params_map():
     """Get raster parameters like bounds, resolution, CRS"""
     return {
@@ -69,6 +96,22 @@ def get_default_params_map():
         "Temperature": "data/TEMP.tif",
         "Popilation density": "data/usa_pd_2020_1km.tif",
     }
+
+
+def generate_random_points(n, north, east, south, west):
+    """
+    Returns a list of (lat, lon) random points inside the bounding box.
+    north: max latitude
+    south: min latitude
+    east:  max longitude
+    west:  min longitude
+    """
+    points = []
+    for _ in range(n):
+        lat = random.uniform(south, north)
+        lon = random.uniform(west, east)
+        points.append((lat, lon))
+    return points
 
 
 # ---------------------------------------------------------
@@ -90,8 +133,7 @@ if __name__ == "__main__":
     }
 
     df = extract_multiple_to_df(
-        raster_map, city_coords, named_mode=True, calculate_avgs=True, calculate_stdevs=True)
-
+        raster_map, city_coords, named_mode=True)
     print(df)
 
     coordinates_nameless = [
@@ -107,3 +149,30 @@ if __name__ == "__main__":
     df2 = extract_multiple_to_df(raster_map, coordinates_nameless)
     print(df2)
     # df.to_csv("city_raster_values.csv", index=False)
+
+    random_points = generate_random_points(
+        n=5000,             # or any number you want
+        north=49.38,
+        south=24.52,
+        west=-124.78,
+        east=-66.95
+    )
+
+    df_random = extract_multiple_to_df(
+        raster_map,
+        random_points,
+        named_mode=False,
+        calculate_avgs=True,
+        calculate_stdevs=True
+    )
+
+    for name in raster_map:
+        vals = df_random[name].tolist()
+        # Remove None values
+        vals = [v for v in vals if v is not None]
+        if vals:
+            avg = sum(vals) / len(vals)
+            stdev = statistics.stdev(vals) if len(vals) > 1 else 0
+            print(f"{name}: avg = {avg:.3f}, stdev = {stdev:.3f}")
+        else:
+            print(f"{name}: no valid points")
