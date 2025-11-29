@@ -36,16 +36,25 @@ def extract_multiple_to_df(raster_map, coordinates):
 
 
 # ---------------------------------------------------------
-# Main
+# Get Parameters
 # ---------------------------------------------------------
-if __name__ == "__main__":
-    raster_map = {
+def get_default_params_map():
+    """Get raster parameters like bounds, resolution, CRS"""
+    return {
         "Wind efficiency": "data/USA_capacity-factor_IEC2.tif",
         "Solar power": "data/PVOUT.tif",
         "Fiber optics": "data/usa.tif",
         "Temperature": "data/TEMP.tif",
         "Popilation density": "data/usa_pd_2020_1km.tif",
     }
+
+
+# ---------------------------------------------------------
+# Main
+# ---------------------------------------------------------
+if __name__ == "__main__":
+
+    raster_map = get_default_params_map()
 
     city_coords = {
         "Dallas, TX": (32.7767, -96.7970),
