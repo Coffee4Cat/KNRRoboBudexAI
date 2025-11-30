@@ -8,14 +8,20 @@ import torch
 import numpy as np
 
 def rule_more_renewable(xa, xb):
-    # Sum wind efficiency and solar power
-    w_wind = 3.0
-    w_solar = 0.02
-    score_a = xa[:, 2] * w_wind + xa[:, 3] * w_solar
-    score_b = xb[:, 2] * w_wind + xb[:, 3] * w_solar
+    # Weights
+    w_wind = 0.02
+    w_solar = 3.0
+
+    val_a_wind = xa[:, 2] * w_wind
+    val_a_solar = xa[:, 3] * w_solar
+    val_b_wind = xb[:, 2] * w_wind
+    val_b_solar = xb[:, 3] * w_solar
+    score_a = torch.max(val_a_wind, val_a_solar)
+    score_b = torch.max(val_b_wind, val_b_solar)
+
     r = torch.sign(score_a - score_b)
     w = torch.abs(score_a - score_b)
-    return r*w
+    return r * w
 
 def rule_more_fiber_optics(xa, xb):
     # Higher fiber optics is better
@@ -70,9 +76,10 @@ def rule_good_solar(xa, xb, lower=4.0, upper=20.0):
 
     r = torch.sign(score_a - score_b)
     w = torch.abs(score_a - score_b)
-    return r * w
+    w_solar = 3.0
+    return r * w * w_solar
 
-def rule_high_wind(xa, xb, lower=50.0, upper=500.0):
+def rule_high_wind(xa, xb, lower=50.0, upper=250.0):
     """
     Wind score: zero below `lower`, capped at `upper`.
     Values between are scaled linearly.
@@ -87,7 +94,16 @@ def rule_high_wind(xa, xb, lower=50.0, upper=500.0):
 
     r = torch.sign(score_a - score_b)
     w = torch.abs(score_a - score_b)
-    return r * w
+    w_wind = 0.02
+    return r * w * w_wind
+
+
+def rule_renewables_need_cooling(xa, xb):
+    # if sign different, capacity_score more important
+    renewable_score = rule_more_renewable(xa, xb)
+    capacity_score = rule_possible_heat(xa, xb)
+    score = torch.sign(capacity_score) * torch.abs((torch.sign(capacity_score) - torch.sign(renewable_score)))
+    return score
 
 
 def total_rule_score(xa, xb, N=5):
@@ -101,7 +117,8 @@ def total_rule_score(xa, xb, N=5):
         rule_facilities,
         rule_possible_heat,
         rule_good_solar,
-        rule_high_wind
+        rule_high_wind,
+        rule_renewables_need_cooling
     ]
 
     num_rules = len(rules)
@@ -113,26 +130,24 @@ def total_rule_score(xa, xb, N=5):
     # Compute scores for chosen rules
     scores = torch.stack([rules[i](xa, xb) for i in indices])
 
-    # Normalize/clamp scores to [-1,1] (from [-5,5])
     normalized_scores = torch.clamp(scores, -5.0, 5.0) / 5.0
 
-    # Sum or mean
-    total_score = normalized_scores.sum(dim=0)  # or normalized_scores.mean()
+    total_score = normalized_scores.sum(dim=0)
     return total_score
 
 print("test")
 
 test_data_a = torch.tensor([
-    [100,100, 0.410, 4.814, 0.392, 17.0, 89],   # Above avg for most
-    [100,100, 0.168, 3.840, 0.214, 6.4, 18],    # Below avg for most
-    [100,100, 0.289, 4.327, 0.303, 11.7, 38]    # Near avg
+    [100,100, 100, 4.814, 0.392, 17.0, 89], 
+    [100,100, 50, 3.840, 0.214, 6.4, 18],   
+    [100,100, 130, 4.327, 0.303, 11.7, 38]    
 ])
 
 # Rounded test data B
 test_data_b = torch.tensor([
-    [100,100, 0.289, 4.327, 0.303, 11.7, 38],   # Near avg
-    [100,100, 0.349, 4.127, 0.353, 13.7, 138],  # Mixed case
-    [100,100, 0.239, 4.627, 0.283, 8.7, 1]    # Mixed case
+    [100,100, 150, 4.327, 0.303, 11.7, 38],  
+    [100,100, 14, 4.127, 0.353, 13.7, 138],  
+    [100,100, 100, 4.627, 0.283, 8.7, 1]    
 ])
 
 print(f'Rule more renewable: {rule_more_renewable(test_data_a, test_data_b)}')
@@ -142,5 +157,6 @@ print(f'Rule facilities: {rule_facilities(test_data_a, test_data_b)}')
 print(f'Rule possible heat: {rule_possible_heat(test_data_a, test_data_b)}')
 print(f'Rule good solar: {rule_good_solar(test_data_a, test_data_b)}')
 print(f'Rule high wind: {rule_high_wind(test_data_a, test_data_b)}')
+print(f'Renewables need cooling: {rule_renewables_need_cooling(test_data_a, test_data_b)}')
 print(f'Total rule score: {total_rule_score(test_data_a, test_data_b)}')
 
