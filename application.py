@@ -12,8 +12,7 @@ import plotly.graph_objects as go
 import json
 import torch
 import torch.nn as nn
-
-
+from torch.utils.data import DataLoader, Dataset
 
 class RankNet(nn.Module):
     def __init__(self, input_dim):
@@ -30,10 +29,40 @@ class RankNet(nn.Module):
         
     def forward(self, x):
         return self.model(x)
-input_dim = 5    
-model = RankNet(input_dim=input_dim)
-model.load_state_dict(torch.load("usa_model_200_400.pt", map_location="cpu"))
-model.eval()
+# input_dim = 7    
+# model = RankNet(input_dim=input_dim)
+# model.load_state_dict(torch.load("usa_model_200_400.pt", map_location="cpu"))
+# model.eval()
+
+class USADatasetLoaded(Dataset):
+    def __init__(self, path):
+        self.data = torch.load(path).data    
+        self.lendata = self.data.shape[0]
+
+    def __len__(self):
+        return self.lendata
+
+    def __getitem__(self, idx):
+        return self.data[idx, :]   
+    
+
+# dataset = USADatasetLoaded("usa_dataset_200_400_g.pt")
+# dataloader = DataLoader(
+#     dataset,
+#     batch_size=128,
+#     shuffle=True
+# )
+# print(f"DATASET SHAPE: {len(dataset)}")
+# data_tensor = dataset.data 
+
+# with torch.no_grad():
+#     predictions = model(data_tensor).squeeze().numpy()
+
+# latitudes = data_tensor[:, 0].numpy()
+# longitudes = data_tensor[:, 1].numpy()
+    
+
+
 
 
 class WebChannelHandler(QObject):
@@ -149,6 +178,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Wizualizacja Predykcji - USA")
         self.setGeometry(100, 100, 1400, 900)
         
+        # Wczytywanie modelu i danych
+        self.load_model_and_data()
+        
         # Dane dla wszystkich modeli
         self.models_data = {}
         self.optimized_points = {}  # Przechowujemy punkty optymalizacji osobno
@@ -180,6 +212,50 @@ class MainWindow(QMainWindow):
         
         # Dodawanie zakładek z wykresami
         self.add_plot_tabs()
+    
+    def load_model_and_data(self):
+        """Wczytuje model i dane"""
+        input_dim = 7
+        self.model = RankNet(input_dim=input_dim)
+        self.model.load_state_dict(torch.load("usa_model_200_400.pt", map_location="cpu"))
+        self.model.eval()
+        
+        # TODO: Wczytaj swoje data_tensor tutaj
+        # Na razie używam placeholder - zamień to na właściwe wczytywanie danych
+        # Przykład: self.data_tensor = torch.load("your_data.pt")
+        dataset = USADatasetLoaded("usa_dataset_200_400_g.pt")
+        # dataloader = DataLoader(
+        #     dataset,
+        #     batch_size=128,
+        #     shuffle=True
+        # )
+        print(f"DATASET SHAPE: {len(dataset)}")
+        self.data_tensor = dataset.data[::3] 
+
+    
+
+        
+        # Placeholder - generowanie losowych danych o właściwym kształcie
+        # Kolumny: [lat, lon, wind_eff, solar, fiber, temp, pop_density]
+        
+        # Nazwy cech
+        self.feature_names = [
+            "Wind efficiency",
+            "Solar power", 
+            "Fiber optics",
+            "Temperature",
+            "Population density"
+        ]
+        self.feature_indices = [2, 3, 4, 5, 6]
+        
+        # Obliczanie predykcji
+        with torch.no_grad():
+            self.predictions = self.model(self.data_tensor).squeeze().cpu().numpy()
+        
+        # Ekstraktacja danych
+        self.latitudes = self.data_tensor[:, 0].cpu().numpy()
+        self.longitudes = self.data_tensor[:, 1].cpu().numpy()
+        self.features = [self.data_tensor[:, idx].cpu().numpy() for idx in self.feature_indices]
         
     def setup_dark_theme(self):
         """Ustawia ciemny motyw aplikacji"""
@@ -315,16 +391,9 @@ class MainWindow(QMainWindow):
         parent_layout.addWidget(opt_group)
     
     def create_sample_data(self, seed=42):
-        """Tworzy przykładowe dane dla wykresów"""
-        np.random.seed(seed)
-        n_points = 1000
-        
-        # Generowanie losowych współrzędnych w granicach USA
-        longitudes = np.random.uniform(-125, -65, n_points)
-        latitudes = np.random.uniform(25, 50, n_points)
-        predictions = np.random.uniform(-3, 7, n_points)
-        
-        return longitudes, latitudes, predictions
+        """Tworzy przykładowe dane dla wykresów - DEPRECATED, używamy prawdziwych danych"""
+        # Ta metoda nie jest już używana - dane pochodzą z load_model_and_data()
+        pass
     
     def create_geo_plot(self, longitudes, latitudes, predictions, title, opt_lons=None, opt_lats=None, opt_preds=None):
         """Tworzy wykres geograficzny USA"""
@@ -487,66 +556,154 @@ class MainWindow(QMainWindow):
         """Odświeża wszystkie wykresy z nowymi danymi"""
         for model_name, widget in self.plot_widgets.items():
             if model_name in self.models_data:
-                lons, lats, preds = self.models_data[model_name]
+                lons, lats, vals = self.models_data[model_name]
                 
                 # Pobieramy punkty optymalizacji jeśli istnieją
-                opt_lons, opt_lats, opt_preds = None, None, None
+                opt_lons, opt_lats, opt_vals = None, None, None
                 if model_name in self.optimized_points:
-                    opt_lons, opt_lats, opt_preds = self.optimized_points[model_name]
+                    opt_lons, opt_lats, opt_vals = self.optimized_points[model_name]
                 
-                fig = self.create_geo_plot(lons, lats, preds, f'{model_name} - Predykcje USA', 
-                                          opt_lons, opt_lats, opt_preds)
+                # Dla cech używamy create_feature_plot, dla predykcji create_geo_plot
+                if model_name in self.feature_names:
+                    # Obliczamy vmin/vmax dla tej cechy
+                    try:
+                        vmin = float(np.nanpercentile(vals, 1))
+                        vmax = float(np.nanpercentile(vals, 99))
+                        if np.isclose(vmin, vmax):
+                            vmin, vmax = float(np.nanmin(vals)), float(np.nanmax(vals))
+                    except Exception:
+                        vmin, vmax = float(np.nanmin(vals)), float(np.nanmax(vals))
+                    
+                    fig = self.create_feature_plot(lons, lats, vals, model_name, vmin, vmax,
+                                                   opt_lons, opt_lats, opt_vals)
+                else:
+                    fig = self.create_geo_plot(lons, lats, vals, f'{model_name} - USA', 
+                                              opt_lons, opt_lats, opt_vals)
                 
                 # Dla set_figure przekazujemy wszystkie punkty razem
                 all_lons = np.concatenate([lons, opt_lons]) if opt_lons is not None else lons
                 all_lats = np.concatenate([lats, opt_lats]) if opt_lats is not None else lats
-                all_preds = np.concatenate([preds, opt_preds]) if opt_preds is not None else preds
+                all_vals = np.concatenate([vals, opt_vals]) if opt_vals is not None else vals
                 
-                widget.set_figure(fig, all_lons, all_lats, all_preds)
+                widget.set_figure(fig, all_lons, all_lats, all_vals)
     
     def add_plot_tabs(self):
         """Dodaje zakładki z różnymi wykresami"""
         
-        # Zakładka 1: Model A
-        lon1, lat1, pred1 = self.create_sample_data(seed=42)
-        self.models_data['Model A'] = (lon1, lat1, pred1)
-        plot1 = PlotlyWidget()
-        plot1.click_callback = self.on_plot_click
-        fig1 = self.create_geo_plot(lon1, lat1, pred1, 'Model A - Predykcje USA')
-        plot1.set_figure(fig1, lon1, lat1, pred1)
-        self.tab_widget.addTab(plot1, "Model A")
-        self.plot_widgets['Model A'] = plot1
+        # Zakładka 1: Model Predictions
+        self.models_data['Model Predictions'] = (self.longitudes, self.latitudes, self.predictions)
+        plot_pred = PlotlyWidget()
+        plot_pred.click_callback = self.on_plot_click
+        fig_pred = self.create_geo_plot(
+            self.longitudes, self.latitudes, self.predictions, 
+            'Model Predictions - USA'
+        )
+        plot_pred.set_figure(fig_pred, self.longitudes, self.latitudes, self.predictions)
+        self.tab_widget.addTab(plot_pred, "Model Predictions")
+        self.plot_widgets['Model Predictions'] = plot_pred
         
-        # Zakładka 2: Model B
-        lon2, lat2, pred2 = self.create_sample_data(seed=123)
-        self.models_data['Model B'] = (lon2, lat2, pred2)
-        plot2 = PlotlyWidget()
-        plot2.click_callback = self.on_plot_click
-        fig2 = self.create_geo_plot(lon2, lat2, pred2, 'Model B - Predykcje USA')
-        plot2.set_figure(fig2, lon2, lat2, pred2)
-        self.tab_widget.addTab(plot2, "Model B")
-        self.plot_widgets['Model B'] = plot2
+        # Zakładki dla każdej cechy
+        for i, (feature_name, feature_data) in enumerate(zip(self.feature_names, self.features)):
+            # Obliczamy rozsądne min/max dla colorscale
+            try:
+                vmin = float(np.nanpercentile(feature_data, 1))
+                vmax = float(np.nanpercentile(feature_data, 99))
+                if np.isclose(vmin, vmax):
+                    vmin, vmax = float(np.nanmin(feature_data)), float(np.nanmax(feature_data))
+            except Exception:
+                vmin, vmax = float(np.nanmin(feature_data)), float(np.nanmax(feature_data))
+            
+            self.models_data[feature_name] = (self.longitudes, self.latitudes, feature_data)
+            plot_feat = PlotlyWidget()
+            plot_feat.click_callback = self.on_plot_click
+            
+            # Tworzymy wykres z custom vmin/vmax
+            fig_feat = self.create_feature_plot(
+                self.longitudes, self.latitudes, feature_data,
+                feature_name, vmin, vmax
+            )
+            plot_feat.set_figure(fig_feat, self.longitudes, self.latitudes, feature_data)
+            self.tab_widget.addTab(plot_feat, feature_name)
+            self.plot_widgets[feature_name] = plot_feat
+    
+    def create_feature_plot(self, longitudes, latitudes, values, title, vmin, vmax, 
+                           opt_lons=None, opt_lats=None, opt_vals=None):
+        """Tworzy wykres dla konkretnej cechy z custom zakresem kolorów"""
+        # Podstawowe punkty danych
+        scatter = go.Scattergeo(
+            lon=longitudes,
+            lat=latitudes,
+            text=[f"{title}: {v:.3f}" for v in values],
+            marker=dict(
+                size=2,
+                color=values,
+                cmin=vmin,
+                cmax=vmax,
+                colorscale='Viridis',
+                colorbar=dict(
+                    title=title,
+                    # titlefont=dict(color='white'),
+                    tickfont=dict(color='white')
+                ),
+                line=dict(width=0)
+            ),
+            mode='markers',
+            hovertemplate='<b>Lon:</b> %{lon:.2f}<br><b>Lat:</b> %{lat:.2f}<br><b>Value:</b> %{text}<extra></extra>',
+            name='Original Data'
+        )
         
-        # Zakładka 3: Model C
-        lon3, lat3, pred3 = self.create_sample_data(seed=456)
-        self.models_data['Model C'] = (lon3, lat3, pred3)
-        plot3 = PlotlyWidget()
-        plot3.click_callback = self.on_plot_click
-        fig3 = self.create_geo_plot(lon3, lat3, pred3, 'Model C - Predykcje USA')
-        plot3.set_figure(fig3, lon3, lat3, pred3)
-        self.tab_widget.addTab(plot3, "Model C")
-        self.plot_widgets['Model C'] = plot3
+        data = [scatter]
         
-        # Zakładka 4: Porównanie
-        lon4, lat4, pred4 = self.create_sample_data(seed=789)
-        pred4 = pred4 * 0.8
-        self.models_data['Porównanie'] = (lon4, lat4, pred4)
-        plot4 = PlotlyWidget()
-        plot4.click_callback = self.on_plot_click
-        fig4 = self.create_geo_plot(lon4, lat4, pred4, 'Porównanie - Średnia Modeli')
-        plot4.set_figure(fig4, lon4, lat4, pred4)
-        self.tab_widget.addTab(plot4, "Porównanie")
-        self.plot_widgets['Porównanie'] = plot4
+        # Jeśli są punkty optymalizacji, dodajemy je jako osobną warstwę
+        if opt_lons is not None and len(opt_lons) > 0:
+            scatter_opt = go.Scattergeo(
+                lon=opt_lons,
+                lat=opt_lats,
+                text=[f"{title}: {v:.3f}" for v in opt_vals],
+                marker=dict(
+                    size=6,
+                    color='#FF6B6B',
+                    line=dict(width=1, color='white')
+                ),
+                mode='markers',
+                hovertemplate='<b>Optimized Point</b><br><b>Lon:</b> %{lon:.2f}<br><b>Lat:</b> %{lat:.2f}<br><b>Value:</b> %{text}<extra></extra>',
+                name='Optimized Points'
+            )
+            data.append(scatter_opt)
+        
+        layout = go.Layout(
+            title=dict(
+                text=f'{title} - USA Distribution',
+                font=dict(color='white', size=18)
+            ),
+            paper_bgcolor='#1e1e1e',
+            plot_bgcolor='#1e1e1e',
+            font=dict(color='white'),
+            height=450,
+            showlegend=True if opt_lons is not None else False,
+            legend=dict(
+                font=dict(color='white'),
+                bgcolor='#2a2a2a',
+                bordercolor='#3a3a3a',
+                borderwidth=1
+            ),
+            geo=dict(
+                scope='usa',
+                projection=dict(type='albers usa'),
+                showland=True,
+                landcolor='#2a2a2a',
+                showcountries=True,
+                showsubunits=True,
+                subunitcolor='#4a4a4a',
+                bgcolor='#1e1e1e',
+                coastlinecolor='#4a4a4a',
+                lakecolor='#1e1e1e',
+                lataxis=dict(range=[25, 50]),
+                lonaxis=dict(range=[-125, -67])
+            )
+        )
+        
+        return go.Figure(data=data, layout=layout)
 
 
 def main():
