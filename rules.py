@@ -11,16 +11,16 @@ def rule_more_renewable(xa, xb):
     # Sum wind efficiency and solar power
     w_wind = 3.0
     w_solar = 0.02
-    score_a = xa[:, 0] * w_wind + xa[:, 1] * w_solar
-    score_b = xb[:, 0] * w_wind + xb[:, 1] * w_solar
+    score_a = xa[:, 2] * w_wind + xa[:, 3] * w_solar
+    score_b = xb[:, 2] * w_wind + xb[:, 3] * w_solar
     r = torch.sign(score_a - score_b)
     w = torch.abs(score_a - score_b)
     return r*w
 
 def rule_more_fiber_optics(xa, xb):
     # Higher fiber optics is better
-    score_a = xa[:, 2]
-    score_b = xb[:, 2]
+    score_a = xa[:, 4]
+    score_b = xb[:, 4]
     r = torch.sign(score_a - score_b)
     w = torch.abs(score_a - score_b)
     return r*w
@@ -28,8 +28,8 @@ def rule_more_fiber_optics(xa, xb):
 def rule_heating_region(xa, xb):
     # For temperature above 15°C, weight is zero.
     # For lower temperatures, the lower the temperature, the higher the weight.
-    temp_a = xa[:, 3]
-    temp_b = xb[:, 3]
+    temp_a = xa[:, 5]
+    temp_b = xb[:, 5]
     # Weight: zero if temp > 15, else (15 - temp)
     weight_a = torch.where(temp_a > 15, 0.0, 15 - temp_a)
     weight_b = torch.where(temp_b > 15, 0.0, 15 - temp_b)
@@ -39,18 +39,18 @@ def rule_heating_region(xa, xb):
 
 def rule_facilities(xa, xb):
     # Higher population density is better, but only worth it above 100
-    pop_a = xa[:, 4]
-    pop_b = xb[:, 4]
-    score_a = torch.where(pop_a > 100, xa[:, 4], 0.0)
-    score_b = torch.where(pop_b > 100, xb[:, 4], 0.0)
+    pop_a = xa[:, 6]
+    pop_b = xb[:, 6]
+    score_a = torch.where(pop_a > 100, xa[:, 6], 0.0)
+    score_b = torch.where(pop_b > 100, xb[:, 6], 0.0)
     r = torch.sign(pop_a - pop_b)
     w = torch.abs(score_a - score_b)
     return r * w
 
 def rule_possible_heat(xa, xb):
     # Calculate possible heat score: only for temperatures below 20°C and scaled by population density
-    score_a = torch.where(xa[:, 3] < 20, 20 - xa[:, 3], 0.0) * xa[:,4] / 100
-    score_b = torch.where(xb[:, 3] < 20, 20 - xb[:, 3], 0.0) * xb[:,4] / 100
+    score_a = torch.where(xa[:, 5] < 20, 20 - xa[:, 5], 0.0) * xa[:,6] / 100
+    score_b = torch.where(xb[:, 5] < 20, 20 - xb[:, 5], 0.0) * xb[:,6] / 100
     r = torch.sign(score_a - score_b)
     w = torch.abs(score_a - score_b)
     return r * w
@@ -61,7 +61,7 @@ def rule_good_solar(xa, xb, lower=4.0, upper=20.0):
     Values between are scaled linearly.
     """
     def score(x):
-        s = torch.clamp(x[:, 1], min=lower, max=upper)  # clamp to [lower, upper]
+        s = torch.clamp(x[:, 3], min=lower, max=upper)  # clamp to [lower, upper]
         s = s - lower  # shift so lower bound is zero
         return s
 
@@ -78,7 +78,7 @@ def rule_high_wind(xa, xb, lower=50.0, upper=500.0):
     Values between are scaled linearly.
     """
     def score(x):
-        s = torch.clamp(x[:, 0], min=lower, max=upper)
+        s = torch.clamp(x[:, 2], min=lower, max=upper)
         s = s - lower
         return s
 
@@ -90,9 +90,9 @@ def rule_high_wind(xa, xb, lower=50.0, upper=500.0):
     return r * w
 
 
-def total_rule_score(xa, xb, N=4):
+def total_rule_score(xa, xb, N=5):
     """
-    Pick 4 rules (randomly) using tensor operations and combine their scores on GPU.
+    Pick N rules (randomly) using tensor operations and combine their scores on GPU.
     """
     rules = [
         rule_more_renewable,
@@ -123,16 +123,16 @@ def total_rule_score(xa, xb, N=4):
 print("test")
 
 test_data_a = torch.tensor([
-    [0.410, 4.814, 0.392, 17.0, 89],   # Above avg for most
-    [0.168, 3.840, 0.214, 6.4, 18],    # Below avg for most
-    [0.289, 4.327, 0.303, 11.7, 38]    # Near avg
+    [100,100, 0.410, 4.814, 0.392, 17.0, 89],   # Above avg for most
+    [100,100, 0.168, 3.840, 0.214, 6.4, 18],    # Below avg for most
+    [100,100, 0.289, 4.327, 0.303, 11.7, 38]    # Near avg
 ])
 
 # Rounded test data B
 test_data_b = torch.tensor([
-    [0.289, 4.327, 0.303, 11.7, 38],   # Near avg
-    [0.349, 4.127, 0.353, 13.7, 138],  # Mixed case
-    [0.239, 4.627, 0.283, 8.7, 1]    # Mixed case
+    [100,100, 0.289, 4.327, 0.303, 11.7, 38],   # Near avg
+    [100,100, 0.349, 4.127, 0.353, 13.7, 138],  # Mixed case
+    [100,100, 0.239, 4.627, 0.283, 8.7, 1]    # Mixed case
 ])
 
 print(f'Rule more renewable: {rule_more_renewable(test_data_a, test_data_b)}')
