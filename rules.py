@@ -6,7 +6,6 @@
 
 import torch
 import numpy as np
-import random
 
 def rule_more_renewable(xa, xb):
     # Sum wind efficiency and solar power
@@ -91,9 +90,9 @@ def rule_high_wind(xa, xb, lower=50.0, upper=500.0):
     return r * w
 
 
-def total_rule_score(xa, xb):
+def total_rule_score(xa, xb, N=4):
     """
-    Randomly pick N rules and combine their scores.
+    Pick 4 rules (randomly) using tensor operations and combine their scores on GPU.
     """
     rules = [
         rule_more_renewable,
@@ -104,16 +103,22 @@ def total_rule_score(xa, xb):
         rule_good_solar,
         rule_high_wind
     ]
-    chosen_rules = random.sample(rules, 4)  # pick 4 rules without replacement
-    scores = [r(xa, xb) for r in chosen_rules]
 
-    # Optional: normalize or clamp each rule to [-1,1] to avoid dominance
-    normalized_scores = [torch.clamp(s, -5.0, 5.0) / 5.0 for s in scores]
+    num_rules = len(rules)
+    device = xa.device  # assumes xa and xb are already on GPU
 
-    # Sum or average the normalized scores
-    total_score = sum(normalized_scores)  # or total_score = torch.mean(torch.stack(normalized_scores), dim=0)
+    # Randomly select 4 unique indices using torch
+    indices = torch.randperm(num_rules, device=device)[:N]
+
+    # Compute scores for chosen rules
+    scores = torch.stack([rules[i](xa, xb) for i in indices])
+
+    # Normalize/clamp scores to [-1,1] (from [-5,5])
+    normalized_scores = torch.clamp(scores, -5.0, 5.0) / 5.0
+
+    # Sum or mean
+    total_score = normalized_scores.sum(dim=0)  # or normalized_scores.mean()
     return total_score
-
 
 print("test")
 
