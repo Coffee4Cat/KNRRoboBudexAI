@@ -10,6 +10,30 @@ from PySide6.QtGui import QPalette, QColor
 from PySide6.QtWebChannel import QWebChannel
 import plotly.graph_objects as go
 import json
+import torch
+import torch.nn as nn
+
+
+
+class RankNet(nn.Module):
+    def __init__(self, input_dim):
+        super(RankNet, self).__init__()
+        self.model = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.Linear(32, 1)
+        )
+        
+    def forward(self, x):
+        return self.model(x)
+input_dim = 5    
+model = RankNet(input_dim=input_dim)
+model.load_state_dict(torch.load("usa_model_200_400.pt", map_location="cpu"))
+model.eval()
 
 
 class WebChannelHandler(QObject):
