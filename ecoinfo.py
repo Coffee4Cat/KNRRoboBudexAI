@@ -42,7 +42,7 @@ def extract_multiple_to_df(
     """
     rows = []
 
-    if named_mode:
+    if False:
         coord_iter = ((label, *coords)
                       for label, coords in coordinates.items())
     else:
