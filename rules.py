@@ -6,6 +6,7 @@
 
 import torch
 import numpy as np
+import random
 
 def rule_more_renewable(xa, xb):
     # Sum wind efficiency and solar power
@@ -91,21 +92,26 @@ def rule_high_wind(xa, xb, lower=50.0, upper=500.0):
 
 
 def total_rule_score(xa, xb):
-    scores = [
-        rule_more_renewable(xa, xb),
-        rule_more_fiber_optics(xa, xb),
-        rule_heating_region(xa, xb),
-        rule_facilities(xa, xb),
-        rule_possible_heat(xa, xb),
-        rule_good_solar(xa, xb),
-        rule_high_wind(xa, xb)
+    """
+    Randomly pick N rules and combine their scores.
+    """
+    rules = [
+        rule_more_renewable,
+        rule_more_fiber_optics,
+        rule_heating_region,
+        rule_facilities,
+        rule_possible_heat,
+        rule_good_solar,
+        rule_high_wind
     ]
+    chosen_rules = random.sample(rules, 4)  # pick 4 rules without replacement
+    scores = [r(xa, xb) for r in chosen_rules]
 
-    # Cap each score at 5 (both positive and negative)
-    capped_scores = [torch.clamp(s, min=-5.0, max=5.0) for s in scores]
+    # Optional: normalize or clamp each rule to [-1,1] to avoid dominance
+    normalized_scores = [torch.clamp(s, -5.0, 5.0) / 5.0 for s in scores]
 
-    # Sum the capped scores
-    total_score = sum(capped_scores)
+    # Sum or average the normalized scores
+    total_score = sum(normalized_scores)  # or total_score = torch.mean(torch.stack(normalized_scores), dim=0)
     return total_score
 
 
